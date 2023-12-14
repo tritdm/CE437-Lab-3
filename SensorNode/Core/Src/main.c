@@ -54,6 +54,7 @@ UART_HandleTypeDef huart2;
 /* CAN Tx variables */
 const uint8_t first_value = 0x01;
 const uint8_t second_value = 0x02;
+uint8_t count = 0;
 CAN_TxHeaderTypeDef CANTxHeader;
 uint8_t CANTxBuffer[] = {0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 uint32_t CANTxMailboxes = CAN_TX_MAILBOX0;
@@ -84,7 +85,8 @@ void CANTransmit()
 	CANTxHeader.RTR 	= CAN_RTR_DATA;
 	CANTxHeader.DLC 	= CAN_DATA_LENGTH;
 
-	CANTxBuffer[7] 		= (CANTxBuffer[7] + 1)%255;
+	CANTxBuffer[6] 		= (CANTxBuffer[6] + 1)%15;
+//	CANTxBuffer[7] 		= (CANTxBuffer[7] + 1)%255;
 
 	if (HAL_CAN_AddTxMessage(&hcan, &CANTxHeader, CANTxBuffer, &CANTxMailboxes) == HAL_OK)
 	{
@@ -141,15 +143,19 @@ int main(void)
   {
 	CANTransmit();
 	HAL_Delay(50);
+	int crc = SAE_J1850_Calc(CANTxBuffer, 6);
 	if (CANDataRcvFlag == 1)
 	{
 		CANDataRcvFlag = 0;
 		if ((CANRxBuffer[0] == CANTxBuffer[0]) && (CANRxBuffer[1] == CANTxBuffer[1]))
 		{
-			if (CANRxBuffer[2] == CANRxBuffer[0] + CANRxBuffer[1])
+			if (CANRxBuffer[2] == CANTxBuffer[0] + CANTxBuffer[1])
 			{
-				HAL_GPIO_TogglePin(GPIO_Port, LEDB_Pin);
-				if (CANRxBuffer[7]);
+				// Check receive true CRC
+				if (CANRxBuffer[7] == crc)
+				{
+					HAL_GPIO_TogglePin(GPIO_Port, LEDB_Pin);
+				}
 			}
 		}
 

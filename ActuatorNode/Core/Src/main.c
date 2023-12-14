@@ -91,7 +91,7 @@ void CANResponse()
 
 	CANTxBuffer[2] = CANTxBuffer[0] + CANTxBuffer[1];
 
-//	CANTxBuffer[7] = SAE_J1850_Calc(CANTxBuffer, 7);
+	CANTxBuffer[7] = SAE_J1850_Calc(CANTxBuffer, 6);
 
 	CANTxHeader.StdId 	= CAN_TX_STD_ID;
 	CANTxHeader.IDE 	= CAN_ID_STD;
