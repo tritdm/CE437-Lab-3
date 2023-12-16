@@ -4,7 +4,11 @@ volatile uint8_t CANDataRcvFlag = 0;
 uint8_t CANRxBuffer[CAN_DATA_LENGTH];
 CAN_RxHeaderTypeDef CANRxHeader;
 
-int SAE_J1850_Calc(int data[], int len)
+uint8_t CANTxBuffer[] = {0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint32_t CANTxMailboxes = CAN_TX_MAILBOX0;
+CAN_TxHeaderTypeDef CANTxHeader;
+
+int SAE_J1850_Calc(uint8_t data[], int len)
 {
 	int crc, temp1, temp2;
 	crc 	= 0;
@@ -34,32 +38,28 @@ int SAE_J1850_Calc(int data[], int len)
 	return crc;
 }
 
-void CAN_Transmit(CAN_HandleTypeDef *hcan, const CAN_TxHeaderTypeDef *pHeader,
-        		const uint8_t aData[], uint32_t *pTxMailbox)
+void genMessage()
 {
-	HAL_CAN_AddTxMessage(hcan, pHeader, aData, pTxMailbox);
+	CANTxHeader.StdId 	= CAN_TX_STD_ID;
+	CANTxHeader.IDE 	= CAN_ID_STD;
+	CANTxHeader.RTR 	= CAN_RTR_DATA;
+	CANTxHeader.DLC 	= CAN_DATA_LENGTH;
+
+	CANTxBuffer[0] 		= rand() % 16;
+	CANTxBuffer[1] 		= rand() % 16;
+	CANTxBuffer[6] 		= (CANTxBuffer[6] + 1)%15;
 }
 
-//void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
-//{
-//	HAL_GPIO_TogglePin(GPIO_Port, LEDR_Pin);
-//	HAL_GPIO_TogglePin(GPIO_Port, LEDG_Pin);
-//	HAL_GPIO_TogglePin(GPIO_Port, LEDB_Pin);
-//
-//	if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &CANRxHeader, CANRxBuffer) != HAL_OK)
-//	{
-//		Error_Handler();
-//	}
-//
-//	if (CANRxHeader.StdId == CAN_RX_STD_ID)
-//	{
-//		CANDataRcvFlag = 1;
-//	}
-//}
-//
+void CAN_Transmit(CAN_HandleTypeDef *hcan)
+{
+	if (HAL_CAN_AddTxMessage(hcan, &CANTxHeader, CANTxBuffer, &CANTxMailboxes) == HAL_OK)
+	{
+		HAL_GPIO_TogglePin(GPIO_Port, LEDR_Pin);
+	}
+}
+
 void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
-	HAL_GPIO_TogglePin(GPIO_Port, LEDG_Pin);
 
 	if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO1, &CANRxHeader, CANRxBuffer) != HAL_OK)
 	{
@@ -69,5 +69,6 @@ void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
 	if (CANRxHeader.StdId == CAN_RX_STD_ID)
 	{
 		CANDataRcvFlag = 1;
+		HAL_GPIO_TogglePin(GPIO_Port, LEDG_Pin);
 	}
 }

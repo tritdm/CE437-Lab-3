@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "uart.h"
 #include "can.h"
+#include "stdlib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,21 +48,26 @@ CAN_HandleTypeDef hcan;
 
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim2;
+
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+//const uint8_t first_value = 0x01;
+//const uint8_t second_value = 0x02;
+
+uint8_t count = 0; // messsage counter
+
 /* CAN Tx variables */
-const uint8_t first_value = 0x01;
-const uint8_t second_value = 0x02;
-uint8_t count = 0;
-CAN_TxHeaderTypeDef CANTxHeader;
-uint8_t CANTxBuffer[] = {0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-uint32_t CANTxMailboxes = CAN_TX_MAILBOX0;
+extern uint8_t CANTxBuffer[];
+uint8_t CANDataTxFlag = 0;
+
 /* CAN Rx variables */
 extern uint8_t CANRxBuffer[];
 extern uint8_t CANDataRcvFlag;
-extern CAN_RxHeaderTypeDef CANRxHeader;
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -72,27 +78,23 @@ static void MX_CAN_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void CANTransmit()
+// Callback function for timer2
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	CANTxHeader.StdId 	= CAN_TX_STD_ID;
-	CANTxHeader.IDE 	= CAN_ID_STD;
-	CANTxHeader.RTR 	= CAN_RTR_DATA;
-	CANTxHeader.DLC 	= CAN_DATA_LENGTH;
-
-	CANTxBuffer[6] 		= (CANTxBuffer[6] + 1)%15;
-//	CANTxBuffer[7] 		= (CANTxBuffer[7] + 1)%255;
-
-	if (HAL_CAN_AddTxMessage(&hcan, &CANTxHeader, CANTxBuffer, &CANTxMailboxes) == HAL_OK)
-	{
-		HAL_GPIO_TogglePin(GPIO_Port, LEDR_Pin);
-	}
+ if(htim->Instance == htim2.Instance)
+ {
+   HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+   CANDataTxFlag = 1;
+ }
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -128,31 +130,43 @@ int main(void)
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start_IT(&htim2);
   if (HAL_CAN_Start(&hcan) != HAL_OK)
   {
 	  Error_Handler();
   }
   HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO1_MSG_PENDING);
   printf("Sensor\n");
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	CANTransmit();
-	HAL_Delay(50);
-	int crc = SAE_J1850_Calc(CANTxBuffer, 6);
+	if (CANDataTxFlag == 1)
+	{
+		CANDataTxFlag = 0;
+		genMessage();
+		CAN_Transmit(&hcan);
+	}
+//	HAL_Delay(50);
+
 	if (CANDataRcvFlag == 1)
 	{
 		CANDataRcvFlag = 0;
+		// Compare data received true
 		if ((CANRxBuffer[0] == CANTxBuffer[0]) && (CANRxBuffer[1] == CANTxBuffer[1]))
 		{
-			if (CANRxBuffer[2] == CANTxBuffer[0] + CANTxBuffer[1])
+			if (CANRxBuffer[2] == (CANTxBuffer[0] + CANTxBuffer[1]))
 			{
-				// Check receive true CRC
-				if (CANRxBuffer[7] == crc)
+				// Generate CRC from data received
+				uint8_t crc = SAE_J1850_Calc(CANRxBuffer, 7);
+
+				// Compare CRC data received and CRC generated
+				if (crc == CANRxBuffer[7])
 				{
 					HAL_GPIO_TogglePin(GPIO_Port, LEDB_Pin);
 				}
@@ -345,6 +359,51 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 3599;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -428,7 +487,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(XSHUT_MCU1_0_GPIO_Port, XSHUT_MCU1_0_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13|XSHUT_MCU1_0_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LEDB_Pin|LEDG_Pin|LEDR_Pin|GPIO_PIN_3, GPIO_PIN_SET);
@@ -439,18 +498,18 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pins : PC13 XSHUT_MCU1_0_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_13|XSHUT_MCU1_0_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pin : GPIO1_MCU1_0_Pin */
   GPIO_InitStruct.Pin = GPIO1_MCU1_0_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIO1_MCU1_0_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : XSHUT_MCU1_0_Pin */
-  GPIO_InitStruct.Pin = XSHUT_MCU1_0_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(XSHUT_MCU1_0_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : BTN2_Pin BTN1_Pin */
   GPIO_InitStruct.Pin = BTN2_Pin|BTN1_Pin;

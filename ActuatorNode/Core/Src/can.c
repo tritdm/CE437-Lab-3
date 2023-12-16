@@ -1,12 +1,15 @@
 #include "can.h"
 #include "gpio.h"
 
-extern CAN_HandleTypeDef hcan;
 volatile uint8_t CANDataRcvFlag = 0;
 uint8_t CANRxBuffer[CAN_DATA_LENGTH];
 CAN_RxHeaderTypeDef CANRxHeader;
 
-int SAE_J1850_Calc(int data[], int len)
+uint32_t CANTxMailboxes = CAN_TX_MAILBOX1;
+uint8_t CANTxBuffer[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+CAN_TxHeaderTypeDef CANTxHeader;
+
+int SAE_J1850_Calc(uint8_t data[], int len)
 {
 	int crc, temp1, temp2;
 	crc 	= 0;
@@ -36,24 +39,42 @@ int SAE_J1850_Calc(int data[], int len)
 	return crc;
 }
 
-void CAN_Transmit(CAN_HandleTypeDef *hcan, const CAN_TxHeaderTypeDef *pHeader,
-        		const uint8_t aData[], uint32_t *pTxMailbox)
-{
-	HAL_CAN_AddTxMessage(hcan, pHeader, aData, pTxMailbox);
-}
-
 void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
-	HAL_GPIO_TogglePin(ACTUATOR_GPIO_PORT, LEDB_Pin);
-	HAL_GPIO_TogglePin(ACTUATOR_GPIO_PORT, LEDR_Pin);
-	HAL_GPIO_TogglePin(ACTUATOR_GPIO_PORT, LEDG_Pin);
 	if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO1, &CANRxHeader, CANRxBuffer) != HAL_OK)
 	{
 		Error_Handler();
 	}
-	CANDataRcvFlag = 1;
+
+	// Check true Transmitter
 	if (CANRxHeader.StdId == CAN_RX_STD_ID)
 	{
 		CANDataRcvFlag = 1;
+		HAL_GPIO_TogglePin(ACTUATOR_GPIO_PORT, LEDB_Pin);
+	}
+}
+
+void genMessageResponse()
+{
+	for (int _byte = 0; _byte < 8; ++ _byte)
+		{
+			CANTxBuffer[_byte] = CANRxBuffer[_byte];
+		}
+
+		CANTxBuffer[2] = CANRxBuffer[0] + CANRxBuffer[1];
+
+		CANTxBuffer[7] = SAE_J1850_Calc(CANTxBuffer, 7);
+
+		CANTxHeader.StdId 	= CAN_TX_STD_ID;
+		CANTxHeader.IDE 	= CAN_ID_STD;
+		CANTxHeader.RTR 	= CAN_RTR_DATA;
+		CANTxHeader.DLC 	= CAN_DATA_LENGTH;
+}
+
+void CAN_Transmit(CAN_HandleTypeDef *hcan)
+{
+	if (HAL_CAN_AddTxMessage(hcan, &CANTxHeader, CANTxBuffer, &CANTxMailboxes) == HAL_OK)
+	{
+		HAL_GPIO_TogglePin(ACTUATOR_GPIO_PORT, LEDG_Pin);
 	}
 }

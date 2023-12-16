@@ -60,6 +60,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define LEDIN_Pin GPIO_PIN_13
+#define LEDIN_GPIO_Port GPIOC
 #define SPI_SS_Pin GPIO_PIN_4
 #define SPI_SS_GPIO_Port GPIOA
 #define BTN1_Pin GPIO_PIN_0

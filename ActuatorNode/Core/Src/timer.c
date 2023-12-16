@@ -9,15 +9,15 @@ extern uint32_t pressTime;
  * @brief Timer ISR
  * @param htim Timer_HandleTypeDef pointer
  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	if (htim->Instance == htim3.Instance)
-	{
-		timeElapsed += 100;
-		if (isButtonPressed) pressTime += 100;
-	}
-	else
-	{
-		__NOP();
-	}
-}
+//void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+//{
+//	if (htim->Instance == htim3.Instance)
+//	{
+//		timeElapsed += 100;
+//		if (isButtonPressed) pressTime += 100;
+//	}
+//	else
+//	{
+//		__NOP();
+//	}
+//}
