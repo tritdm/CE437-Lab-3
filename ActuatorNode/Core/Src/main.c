@@ -57,12 +57,11 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 /* CAN Tx variables */
-CAN_TxHeaderTypeDef CANTxHeader;
-uint8_t CANTxBuffer[] = {0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-uint32_t CANTxMailboxes = CAN_TX_MAILBOX1;
+int CANDataTxFlag = 0;
+
 /* CAN Rx variables */
 extern uint8_t CANRxBuffer[];
-extern uint8_t CANDataRcvFlag;
+extern int CANDataRcvFlag;
 extern CAN_RxHeaderTypeDef CANRxHeader;
 /* USER CODE END PV */
 
@@ -82,26 +81,14 @@ static void MX_CAN_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void CANResponse()
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	for (int _byte = 0; _byte < 8; ++ _byte)
-	{
-		CANTxBuffer[_byte] = CANRxBuffer[_byte];
-	}
-
-	CANTxBuffer[2] = CANTxBuffer[0] + CANTxBuffer[1];
-
-//	CANTxBuffer[7] = SAE_J1850_Calc(CANTxBuffer, 7);
-
-	CANTxHeader.StdId 	= CAN_TX_STD_ID;
-	CANTxHeader.IDE 	= CAN_ID_STD;
-	CANTxHeader.RTR 	= CAN_RTR_DATA;
-	CANTxHeader.DLC 	= CAN_DATA_LENGTH;
-
-	if (HAL_CAN_AddTxMessage(&hcan, &CANTxHeader, CANTxBuffer, &CANTxMailboxes) == HAL_OK)
-	{
-
-	}
+ if(htim->Instance == htim2.Instance)
+ {
+   HAL_GPIO_TogglePin(ACTUATOR_GPIO_PORT, LEDR_Pin);
+   CANDataTxFlag = 1;
+ }
 }
 /* USER CODE END 0 */
 
@@ -141,13 +128,15 @@ int main(void)
   MX_USART1_UART_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start_IT(&htim3);
+//  HAL_TIM_Base_Start_IT(&htim3);
   if (HAL_CAN_Start(&hcan) != HAL_OK)
   {
 	  Error_Handler();
   }
   HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO1_MSG_PENDING);
+  HAL_TIM_Base_Start_IT(&htim2);
   printf("Actuator\n");
+
   //  Monitor_Show();
   /* USER CODE END 2 */
 
@@ -158,10 +147,12 @@ int main(void)
     	if (CANDataRcvFlag == 1)
     	{
     		CANDataRcvFlag = 0;
-    		CANResponse();
+			HAL_TIM_Base_Start_IT(&htim2);
+    		while (CANDataTxFlag != 1);
+    		genMessageResponse();
+    		CAN_Transmit(&hcan);
+    		HAL_TIM_Base_Stop_IT(&htim2);
     	}
-//    	CANTransmit();
-//    	HAL_Delay(50);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -342,28 +333,24 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
-  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = 7199;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
+  htim2.Init.Period = 199;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
-  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
-  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 0;
-  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
-  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
-  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 0;
-  if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -518,9 +505,13 @@ static void MX_GPIO_Init(void)
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LEDIN_GPIO_Port, LEDIN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, SPI_SS_Pin|L_PWM_Pin, GPIO_PIN_RESET);
@@ -530,6 +521,13 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LEDR_Pin|LEDG_Pin|LEDB_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin : LEDIN_Pin */
+  GPIO_InitStruct.Pin = LEDIN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LEDIN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : SPI_SS_Pin L_PWM_Pin */
   GPIO_InitStruct.Pin = SPI_SS_Pin|L_PWM_Pin;
